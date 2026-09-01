@@ -1,10 +1,3 @@
-create table project (
-    id uuid default random_uuid() primary key,
-    "key" varchar(255) not null unique,
-    name varchar(255) not null,
-    created_at timestamp not null default now()
-);
-
 create table environment (
     id uuid default random_uuid() primary key,
     name varchar(100) not null unique
@@ -12,12 +5,10 @@ create table environment (
 
 create table feature_flag (
     id uuid default random_uuid() primary key,
-    project_id uuid not null references project(id),
-    name varchar(255) not null,
+    name varchar(255) not null unique,
     description text,
     created_at timestamp not null default now(),
-    updated_at timestamp not null default now(),
-    constraint uq_feature_flag_project_name unique (project_id, name)
+    updated_at timestamp not null default now()
 );
 
 create table flag_env (
@@ -29,12 +20,4 @@ create table flag_env (
     version int not null default 1,
     updated_at timestamp not null default now(),
     constraint uq_flag_env_flag_env unique (flag_id, env_id)
-);
-
-create table api_key (
-    id uuid default random_uuid() primary key,
-    "key" varchar(255) not null unique,
-    project_id uuid not null references project(id),
-    description text,
-    created_at timestamp not null default now()
 );

@@ -3,35 +3,35 @@ package com.featureflagmanager.controller
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
-import java.time.Instant
-import java.util.UUID
-
-data class CreateProjectRequest(
-    @field:NotBlank val key: String,
-    @field:NotBlank val name: String,
-)
-
-data class ProjectResponse(
-    val id: UUID,
-    val key: String,
-    val name: String,
-    val createdAt: Instant,
-)
+import jakarta.validation.constraints.Pattern
+import jakarta.validation.constraints.Size
 
 data class CreateFlagRequest(
-    @field:NotBlank val name: String,
-    val description: String? = null,
+    @field:NotBlank
+    @field:Size(max = 100)
+    @field:Pattern(
+        regexp = "^[a-z0-9]+(-[a-z0-9]+)*$",
+        message = "must be lowercase kebab-case (e.g. 'my-new-flag')",
+    )
+    val name: String,
+    @field:Size(max = 500) val description: String? = null,
 )
 
 data class UpdateFlagRequest(
-    val description: String? = null,
+    @field:Size(max = 500) val description: String? = null,
+)
+
+data class FlagEnvSummary(
+    val env: String,
+    val enabled: Boolean,
+    val rollout: Int,
+    val version: Int,
 )
 
 data class FlagResponse(
-    val id: UUID,
-    val projectId: UUID,
     val name: String,
     val description: String?,
+    val envs: List<FlagEnvSummary> = emptyList(),
 )
 
 data class UpdateFlagEnvRequest(
@@ -41,7 +41,7 @@ data class UpdateFlagEnvRequest(
 )
 
 data class FlagEnvResponse(
-    val flagId: UUID,
+    val flagName: String,
     val env: String,
     val enabled: Boolean,
     val rollout: Int,
@@ -54,12 +54,12 @@ data class ClientFeature(
 )
 
 data class ClientFeaturesResponse(
-    val project: String,
     val env: String,
     val features: List<ClientFeature>,
 )
 
 data class ErrorResponse(
     val error: String,
+    val code: String,
     val current: Any? = null,
 )

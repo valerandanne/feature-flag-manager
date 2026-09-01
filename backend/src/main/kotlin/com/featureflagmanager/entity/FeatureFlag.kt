@@ -5,13 +5,9 @@ import java.time.Instant
 import java.util.UUID
 
 @Entity
-@Table(name = "feature_flag", uniqueConstraints = [UniqueConstraint(columnNames = ["project_id", "name"])])
+@Table(name = "feature_flag")
 class FeatureFlag(
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "project_id", nullable = false)
-    var project: Project,
-
-    @Column(nullable = false)
+    @Column(nullable = false, unique = true)
     var name: String,
 
     @Column
