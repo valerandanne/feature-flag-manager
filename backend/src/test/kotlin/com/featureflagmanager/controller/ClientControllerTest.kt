@@ -1,6 +1,6 @@
 package com.featureflagmanager.controller
 
-import com.featureflagmanager.service.ClientFeatureService
+import com.featureflagmanager.service.ClientFlagService
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -9,26 +9,27 @@ import org.junit.jupiter.api.Test
 
 class ClientControllerTest {
 
-    private val clientFeatureService = mockk<ClientFeatureService>()
-    private val controller = ClientController(clientFeatureService)
+    private val clientFlagService = mockk<ClientFlagService>()
+    private val controller = ClientController(clientFlagService)
 
     @Test
-    fun `getFeatures delegates to the service with the given env`() {
-        val response = ClientFeaturesResponse(env = "staging", features = listOf(ClientFeature("f1", true)))
-        every { clientFeatureService.resolveFeatures("staging") } returns response
+    fun `listFlags delegates to the service with the given env`() {
+        val response = ClientFlagsResponse(env = "staging", flags = listOf(ClientFlag("f1", "F1", true)))
+        every { clientFlagService.resolveFlags("staging") } returns response
 
-        val result = controller.getFeatures(env = "staging")
+        val result = controller.listFlags(env = "staging")
 
         assertThat(result).isEqualTo(response)
     }
 
     @Test
-    fun `getFeatures defaults to production when env is not supplied`() {
-        val response = ClientFeaturesResponse(env = "production", features = emptyList())
-        every { clientFeatureService.resolveFeatures("production") } returns response
+    fun `getFlag delegates to the service for the given flag and env`() {
+        val flag = ClientFlag("f1", "F1", true)
+        every { clientFlagService.getFlag("f1", "production") } returns flag
 
-        controller.getFeatures(env = "production")
+        val result = controller.getFlag(flagKey = "f1", env = "production")
 
-        verify { clientFeatureService.resolveFeatures("production") }
+        assertThat(result).isEqualTo(flag)
+        verify { clientFlagService.getFlag("f1", "production") }
     }
 }

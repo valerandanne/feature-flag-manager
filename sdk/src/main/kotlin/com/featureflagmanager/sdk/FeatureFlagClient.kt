@@ -8,15 +8,16 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 
 @Serializable
-data class ClientFeature(
+data class ClientFlag(
+    val key: String,
     val name: String,
     val enabled: Boolean,
 )
 
 @Serializable
-data class ClientFeaturesResponse(
+data class ClientFlagsResponse(
     val env: String,
-    val features: List<ClientFeature>,
+    val flags: List<ClientFlag>,
 )
 
 class FeatureFlagClientException(message: String) : RuntimeException(message)
@@ -27,14 +28,14 @@ class FeatureFlagClient(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun isEnabled(name: String, env: String = "production"): Boolean {
-        val body = get("/api/v1/client/features/$name?env=$env")
-        return json.decodeFromString(ClientFeature.serializer(), body).enabled
+    fun isEnabled(key: String, env: String = "production"): Boolean {
+        val body = get("/api/v1/client/flags/$key/environments/$env")
+        return json.decodeFromString(ClientFlag.serializer(), body).enabled
     }
 
-    fun getFeatures(env: String = "production"): List<ClientFeature> {
-        val body = get("/api/v1/client/features?env=$env")
-        return json.decodeFromString(ClientFeaturesResponse.serializer(), body).features
+    fun getFlags(env: String = "production"): List<ClientFlag> {
+        val body = get("/api/v1/client/flags/environments/$env")
+        return json.decodeFromString(ClientFlagsResponse.serializer(), body).flags
     }
 
     private fun get(path: String): String {

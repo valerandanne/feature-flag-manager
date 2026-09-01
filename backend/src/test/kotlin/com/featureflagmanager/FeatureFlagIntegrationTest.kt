@@ -42,43 +42,59 @@ class FeatureFlagIntegrationTest {
         environmentRepository.deleteAll()
 
         prodEnv = environmentRepository.save(Environment(name = "production"))
-        flag = featureFlagRepository.save(FeatureFlag(name = "new-checkout", description = "desc"))
+        flag = featureFlagRepository.save(FeatureFlag(key = "new-checkout", name = "New Checkout", description = "desc"))
         flagEnvRepository.save(FlagEnv(flag = flag, env = prodEnv).apply { enabled = true })
     }
 
     @Test
-    fun `client features returns enabled flags for a known env`() {
-        mockMvc.perform(get("/api/v1/client/features?env=production"))
+    fun `client flags returns enabled flags for a known env`() {
+        mockMvc.perform(get("/api/v1/client/flags/environments/production"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.env").value("production"))
-            .andExpect(jsonPath("$.features[0].name").value("new-checkout"))
-            .andExpect(jsonPath("$.features[0].enabled").value(true))
+            .andExpect(jsonPath("$.flags[0].key").value("new-checkout"))
+            .andExpect(jsonPath("$.flags[0].name").value("New Checkout"))
+            .andExpect(jsonPath("$.flags[0].enabled").value(true))
     }
 
     @Test
-    fun `client features rejects unknown env`() {
-        mockMvc.perform(get("/api/v1/client/features?env=nope"))
+    fun `creating a flag starts disabled in every environment`() {
+        val body = mapOf("key" to "new-flag", "name" to "New Flag")
+        mockMvc.perform(
+            post("/api/v1/flags")
+                .contentType("application/json")
+                .content(objectMapper.writeValueAsString(body)),
+        ).andExpect(status().isCreated)
+
+        mockMvc.perform(get("/api/v1/flags/new-flag/environments/production"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.enabled").value(false))
+    }
+
+    @Test
+    fun `updating a flag's name persists and does not affect its key`() {
+        val body = mapOf("name" to "Renamed Checkout")
+        mockMvc.perform(
+            patch("/api/v1/flags/new-checkout")
+                .contentType("application/json")
+                .content(objectMapper.writeValueAsString(body)),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.key").value("new-checkout"))
+            .andExpect(jsonPath("$.name").value("Renamed Checkout"))
+    }
+
+    @Test
+    fun `client flags rejects unknown env`() {
+        mockMvc.perform(get("/api/v1/client/flags/environments/nope"))
             .andExpect(status().isBadRequest)
     }
 
     @Test
-    fun `updating flag env with stale version returns 409 with current state`() {
-        val body = mapOf("enabled" to false, "version" to 999)
-        mockMvc.perform(
-            patch("/api/v1/flags/new-checkout/envs/production")
-                .contentType("application/json")
-                .content(objectMapper.writeValueAsString(body)),
-        )
-            .andExpect(status().isConflict)
-            .andExpect(jsonPath("$.current.version").exists())
-    }
-
-    @Test
-    fun `updating flag env with correct version succeeds and bumps version`() {
+    fun `updating flag env succeeds and bumps version`() {
         val current = flagEnvRepository.findByFlagIdAndEnvId(flag.id!!, prodEnv.id!!)!!
-        val body = mapOf("enabled" to false, "version" to current.version)
+        val body = mapOf("enabled" to false)
         mockMvc.perform(
-            patch("/api/v1/flags/new-checkout/envs/production")
+            patch("/api/v1/flags/new-checkout/environments/production")
                 .contentType("application/json")
                 .content(objectMapper.writeValueAsString(body)),
         )
@@ -88,8 +104,18 @@ class FeatureFlagIntegrationTest {
     }
 
     @Test
+    fun `updating flag env without an enabled field is rejected, not silently defaulted`() {
+        mockMvc.perform(
+            patch("/api/v1/flags/new-checkout/environments/production")
+                .contentType("application/json")
+                .content("{}"),
+        )
+            .andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+    }
+
+    @Test
     fun `two simultaneous updates - one succeeds, the loser gets a clean 409 not a 500`() {
-        val current = flagEnvRepository.findByFlagIdAndEnvId(flag.id!!, prodEnv.id!!)!!
         val startBarrier = CountDownLatch(2)
         val pool = Executors.newFixedThreadPool(2)
 
@@ -97,14 +123,14 @@ class FeatureFlagIntegrationTest {
             startBarrier.countDown()
             startBarrier.await(5, TimeUnit.SECONDS)
             mockMvc.perform(
-                patch("/api/v1/flags/new-checkout/envs/production")
+                patch("/api/v1/flags/new-checkout/environments/production")
                     .contentType("application/json")
                     .content(objectMapper.writeValueAsString(body)),
             ).andReturn().response.status
         }
 
-        val futureA = patchWith(mapOf("enabled" to false, "version" to current.version))
-        val futureB = patchWith(mapOf("rollout" to 42, "version" to current.version))
+        val futureA = patchWith(mapOf("enabled" to false))
+        val futureB = patchWith(mapOf("enabled" to false))
 
         val statuses = listOf(futureA.get(5, TimeUnit.SECONDS), futureB.get(5, TimeUnit.SECONDS))
         pool.shutdown()

@@ -3,15 +3,15 @@
 1. [x] Scaffold `backend/` — Gradle (Kotlin DSL) + wrapper, Spring Boot starters (web, data-jpa,
    validation), Flyway, H2.
 2. [x] Flyway migration for the schema (`FeatureFlag`, `Environment`, `FlagEnv`), H2-compatible
-   (`random_uuid()` defaults). Global flag namespace — no `Project`/`ApiKey` tables,
-   `feature_flag.name` unique across the whole table.
+   (`bigint auto_increment` primary keys). Global flag namespace — no `Project`/`ApiKey` tables,
+   `feature_flag.flag_key` unique across the whole table.
 3. [x] JPA entities (`FeatureFlag`, `Environment`, `FlagEnv` with `@Version`) and Spring Data
    repositories.
 4. [x] Implement `AdminController` + service layer: create/list flags, PATCH flag metadata
    (description), PATCH flag env with `@Version`-based optimistic locking → 409 with current state
    on conflict, GET per-env config. Routes under `/api/v1/flags`, no `projectId`.
-5. [x] Implement `ClientController` + service layer: `GET /api/v1/client/features` — no
-   authentication, returns `{ env, features }`, 400 on unknown env.
+5. [x] Implement `ClientController` + service layer: `GET /api/v1/client/flags/environments/:env` —
+   no authentication, returns `{ env, flags }`, 400 on unknown env.
 6. [x] Add a `@RestControllerAdvice` for consistent error responses (400/404/409) instead of
    leaking raw exception messages.
 7. [x] Add `WebConfig` (CORS) so the `frontend/` dev server can call the API cross-origin.

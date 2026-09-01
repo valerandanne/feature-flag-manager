@@ -3,20 +3,32 @@
 A feature flag manager to enable/disable functionality per environment. Administrative endpoints
 manage flags; an open client endpoint resolves flag state for a given environment.
 
-The API is split into two surfaces — Admin and Client — because they have opposite access
-profiles: Admin is low-frequency, audited mutation, used by people; Client is high-frequency,
-read-only, used by services. Keeping them separate from day one means future changes to one side
-(caching, rate limiting, auth) don't force changes on the other.
+## Main features
 
-- **Backend** (`backend/`): Kotlin + Spring Boot, JPA/Hibernate, embedded H2 (file-based), Flyway.
-- **Frontend** (`frontend/`): React + TypeScript + Vite, admin UI for flags.
+- Per-environment flag config (3 environments), optimistic locking on updates — concurrent
+  edits get a clean 409 instead of clobbering each other.
+- Split Admin/Client APIs: Admin backs the frontend console, Client is what services call.
+  `sdk/` has a working example.
+- Zero-setup local dev: embedded H2 + Flyway migrations, no Docker or external database needed to
+  clone and run.
+- In-process caching on the Client read path (30s TTL, invalidated on Admin writes) so flag
+  resolution stays fast without extra infra.
+- Auto-generated interactive API docs (Swagger UI / OpenAPI) straight from the controllers.
+- Special care on exception handling: every error comes back in the same shape, with a stable
+  `code` clients can branch on instead of parsing error messages.
 
-No Docker, no external database — everything runs with just a JDK and Node installed. See
-[docs/spec/features/001-mvp-feature-flags](docs/spec/features/001-mvp-feature-flags/spec.md) for
-the full requirements and design rationale, and [docs/spec/constitution](docs/spec/constitution/spec.md)
-for the overall stack/architecture.
+## Project structure
 
-## Requirements
+```
+feature-flag-manager/
+├── backend/    Kotlin + Spring Boot API (controller → service → repository)
+│   └── src/main/resources/db/   Flyway migrations + seed data
+├── frontend/   React + TypeScript admin UI (Vite)
+├── sdk/        optional Kotlin client (see Assumptions below)
+└── docs/spec/  per-feature spec/plan/tasks
+```
+
+## Set up requirements
 
 - JDK 17+
 - Node.js + npm
@@ -26,8 +38,7 @@ for the overall stack/architecture.
 If you're using [Claude Code](https://claude.com/claude-code), this repo ships two custom slash
 commands under `.claude/commands/` that do the steps below for you:
 
-- `/flag-manager-start` — starts the backend and frontend.
-- `/run-demo` — starts the backend with seeded demo data and runs the SDK demo.
+- `/start-flag-manager` — starts the backend and frontend.
 
 Otherwise, follow the manual steps below.
 
@@ -48,27 +59,15 @@ To just build a jar and run it directly:
 java -jar build/libs/feature-flag-backend-0.1.0.jar --spring.profiles.active=dev
 ```
 
-The port can be overridden with `--server.port=<port>` or the `PORT` env var.
-
-#### API docs (Swagger)
-
-With the backend running, browse the interactive API docs at `http://localhost:8080/swagger-ui.html`
-(raw OpenAPI spec at `/v3/api-docs`) — generated automatically from the controllers/DTOs, no manual
-annotations added yet.
-
 #### Seeded demo data
 
 With the `dev` profile active, you get:
 
 - Environments `development`, `staging`, `production`
-- Demo flags (`new-payment-flow`, `homepage-variant`) with different enabled/rollout values per
-  environment
+- Demo flags `new-payment-flow` and `homepage-variant` — those are their **key** (the immutable
+  identifier used in the API path), each with its own display **name** and different enabled
+  values per environment
 
-#### Inspecting the database
-
-With `dev` active, the H2 web console is available at `http://localhost:8080/h2-console`
-(JDBC URL `jdbc:h2:file:./data/feature-flags`, user `sa`, empty password). Data persists across
-restarts under `backend/data/`.
 
 ### 2. Frontend
 
@@ -102,13 +101,24 @@ it react.
 # List flags
 curl http://localhost:8080/api/v1/flags
 
-# Client snapshot (no auth required)
-curl "http://localhost:8080/api/v1/client/features?env=production"
+# Create a flag: `key` is the immutable API identifier, `name` is a free-text display label
+# (max 25 chars). New flags start disabled in every environment.
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"key": "new-checkout", "name": "New Checkout"}' \
+  http://localhost:8080/api/v1/flags
 
-# Update a flag's per-env config (optimistic locking — version must match the current one)
+# Update a flag's name/description (its key cannot be changed)
 curl -X PATCH -H "Content-Type: application/json" \
-  -d '{"enabled": true, "version": 1}' \
-  http://localhost:8080/api/v1/flags/new-payment-flow/envs/production
+  -d '{"name": "New Checkout v2"}' \
+  http://localhost:8080/api/v1/flags/new-checkout
+
+# Client snapshot (no auth required) — flags are identified by key
+curl "http://localhost:8080/api/v1/client/flags/environments/production"
+
+# Update a flag's per-env config (optimistic locking — a concurrent update returns 409)
+curl -X PATCH -H "Content-Type: application/json" \
+  -d '{"enabled": true}' \
+  http://localhost:8080/api/v1/flags/new-payment-flow/environments/production
 ```
 
 ## Tests
@@ -121,78 +131,44 @@ cd backend
 Integration tests run against an in-memory H2 database (`test` Spring profile) — no external
 services required.
 
-## Project structure
-
-```
-feature-flag-manager/
-├── backend/    Kotlin + Spring Boot API (controller → service → repository)
-│   └── src/main/resources/db/   Flyway migrations + seed data
-├── frontend/   React + TypeScript admin UI (Vite)
-├── sdk/        optional Kotlin client (see Assumptions below)
-└── docs/spec/  per-feature spec/plan/tasks
-```
 
 ## Assumptions
 
-- Single-tenant: no multi-project or per-project API keys (see the MVP spec's Out of scope).
-- No authentication on either API surface — acceptable for an internal MVP, not for production.
-- The three environments (`development`, `staging`, `production`) are fixed and seeded by the
-  migration; there's no UI/API to create new ones.
-- A new flag is created disabled (`enabled=false`) across all environments by default.
-- `sdk/` is a small optional Kotlin client for consuming the Client API from another service. It's
-  outside the original scope of this exercise — included here for visibility, not polish.
+- Single-tenant: no multi-project or per-project API keys.
+- No authentication on either API surface. Fine for an internal MVP, not for production.
+- No UI/API to add environments beyond the three (`development`, `staging`, `production`) seeded by
+  the migration.
+- New flags start disabled (`enabled=false`) in every environment.
+- `sdk/` is a small optional Kotlin client showing how a service would consume the Client API —
+  included for visibility, not polished.
 
 ## Tradeoffs
 
-- **Minimal security surface:** optimistic locking and per-env config integrity are worked through
-  in depth; authentication, rate limiting, and a health endpoint are not — a deliberate scope cut
-  for this exercise, not an oversight.
-- **Wildcard CORS (`allowedOriginPatterns("*")`):** harmless today with no auth to protect, but a
-  latent risk once auth is added if this isn't revisited.
-- **UUID primary keys over sequential IDs:** avoids leaking flag count/creation order on the
-  unauthenticated Client API, at the cost of a larger key and more index fragmentation than a
-  sequential ID.
-- **Embedded H2 over PostgreSQL:** clone-and-run with no Docker or external service, but no test
-  coverage against a production-grade engine and no access to Postgres-only features.
-- **In-process Caffeine cache over a distributed cache (Redis):** the Client read path
-  (`resolveFeatures`/`isEnabled`) is cached with a 30s TTL and evicted on Admin writes, at zero
-  extra infra cost — but it's per-instance: horizontal scaling multiplies DB load instead of
-  reducing it (each instance caches independently and starts cold), so it stops paying off past a
-  single instance.
-- **Rollout percentage stored but not enforced:** the field exists and is editable end to end, but
-  `GET /api/v1/client/features` ignores it rather than faking enforcement with a non-sticky function.
-- **Manual `version` field over `ETag`/`If-Match`:** simpler to implement and test for an internal
-  API with a single consumer, but not the idiomatic REST mechanism, and needs an app-specific
-  convention instead of standard HTTP semantics.
-- **Separate Admin/Client controllers over one unified controller:** a bit of duplication today so
-  that adding auth to Admin, or caching/rate limiting to Client, later doesn't mean untangling
-  logic mixed into a single controller.
-
+- **Sequential (`bigint auto_increment`) primary keys over UUIDs** — simpler and better index
+  locality than UUIDs, at the cost of leaking flag count/creation order through the unauthenticated
+  Client API (not a concern yet since there's no sensitive data in flag IDs, but worth revisiting
+  if that ever changes).
+- **Embedded H2 over PostgreSQL** — no coverage against a production-grade engine, no Postgres-only
+  features.
+- **In-process Caffeine cache over Redis** — no extra infra, but it's per-instance, so it stops
+  helping once this runs on more than one node.
+- **Separate Admin/Client controllers** — some duplication now, in exchange for auth on Admin or
+  caching/rate-limiting on Client later not touching the other side.
+- **Wildcard CORS** — fine while there's no auth to protect; needs revisiting once there is.
+- **Minimal security surface** — time went into optimistic locking and per-env config integrity;
+  auth, rate limiting, and a health endpoint didn't get the same treatment.
 
 ## What I'd improve with another day
 
-Ordered by what actually blocks a real deployment, not by effort:
-
-- **Add authentication to both APIs.** Anyone with network access can create or mutate flags via
-  `/api/v1/flags`, and anyone can read `/api/v1/client/features` — this is the single biggest gap
-  on this list.
-- **More configuration and versatility on flags, not just on/off.** Today a flag is a boolean plus
-  a `rollout` percentage that isn't even enforced — real usage needs more axes than that 
-  (rollout, targetting user, variants).
-- **PostgreSQL instead of embedded H2.** H2 keeps the project dependency-free for this exercise,
-  but it doesn't hold up under multiple instances or real concurrent load. Bringing Postgres back
-  also means bringing back a Testcontainers-backed so a passing build actually means "works against
-   what production runs".
-- **Actual observability.** No metrics or request timing exist today. Adding
-  `spring-boot-starter-actuator` + Micrometer gets RPS and latency percentiles (via
-  `http.server.requests`) and HikariCP pool stats for free, exposed at `/actuator/metrics`.
-- **Health/readiness endpoint.** Needed by any orchestrator (Kubernetes, ECS) to know when to route
-  traffic to an instance or restart it — there's currently no way to ask the service "are you up."
-- **A CI pipeline.** "Don't leave failing tests on main" is currently enforced by convention only;
-  nothing actually stops a broken build from landing.
-- **Pagination on `GET /api/v1/flags`.** Fine at current scale (a handful of flags), but returning
-  the full list stops being cheap as it grows — and adding pagination later is a breaking change for
-  anything parsing today's response as a bare array, so it's cheaper to get ahead of it than to
-  retrofit it.
-- **Frontend tests.** No automated coverage on the admin UI — regressions currently rely on manual
-  testing.
+- **Auth on both APIs.** Anyone can mutate flags via `/api/v1/flags` or read
+  `/api/v1/client/features` right now.
+- **More than on/off.** Percentage-based rollout, targeting rules, multivariant payloads — a flag
+  today is just a boolean.
+- **PostgreSQL over H2**, with Testcontainers-backed tests so a green build actually means it works
+  against what production runs.
+- **Observability.** `spring-boot-starter-actuator` + Micrometer gets RPS, latency percentiles, and
+  HikariCP pool stats for free via `/actuator/metrics`.
+- **A health/readiness endpoint**, for whatever orchestrator ends up running this.
+- **A CI pipeline.** Right now nothing but convention stops a broken build from landing on main.
+- **Pagination on `GET /api/v1/flags`**, before the flag count makes returning everything expensive.
+- **Frontend tests.** No automated coverage on the admin UI today.

@@ -3,18 +3,18 @@ package com.featureflagmanager.sdk
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-private const val FLAG_NAME = "new-payment-flow"
+private const val FLAG_KEY = "new-payment-flow"
 private const val ENV = "staging"
 private val timeFormat = DateTimeFormatter.ofPattern("HH:mm:ss")
 
 fun main() {
     val client = FeatureFlagClient(baseUrl = "http://localhost:8080")
 
-    println("Watching '$FLAG_NAME' in '$ENV' every 2s. Ctrl+C to stop.")
+    println("Watching '$FLAG_KEY' in '$ENV' every 2s. Ctrl+C to stop.")
     println()
     println("To flip it live, in another terminal:")
-    println("  curl -s http://localhost:8080/api/v1/flags/$FLAG_NAME/envs/$ENV   # copy the \"version\" field")
-    println("  curl -s -X PATCH http://localhost:8080/api/v1/flags/$FLAG_NAME/envs/$ENV \\")
+    println("  curl -s http://localhost:8080/api/v1/flags/$FLAG_KEY/environments/$ENV   # copy the \"version\" field")
+    println("  curl -s -X PATCH http://localhost:8080/api/v1/flags/$FLAG_KEY/environments/$ENV \\")
     println("    -H 'Content-Type: application/json' \\")
     println("    -d '{\"enabled\": false, \"version\": <version-from-above>}'")
     println()
@@ -23,7 +23,7 @@ fun main() {
 
     while (true) {
         val enabled = try {
-            client.isEnabled(FLAG_NAME, ENV)
+            client.isEnabled(FLAG_KEY, ENV)
         } catch (e: FeatureFlagClientException) {
             println("[${now()}] failed to read flag: ${e.message}")
             Thread.sleep(2000)
@@ -32,7 +32,7 @@ fun main() {
 
         val banner = if (enabled) "ON  -> showing new checkout" else "OFF -> showing old checkout"
         val changed = if (lastKnown != null && enabled != lastKnown) " (changed!)" else ""
-        println("[${now()}] $FLAG_NAME = $banner$changed")
+        println("[${now()}] $FLAG_KEY = $banner$changed")
         lastKnown = enabled
 
         Thread.sleep(2000)

@@ -6,7 +6,6 @@ import com.featureflagmanager.entity.FlagEnv
 import com.featureflagmanager.repository.FlagEnvRepository
 import com.featureflagmanager.service.InvalidRequestException
 import com.featureflagmanager.service.NotFoundException
-import com.featureflagmanager.service.VersionConflictException
 import io.mockk.every
 import io.mockk.mockk
 import org.assertj.core.api.Assertions.assertThat
@@ -16,7 +15,6 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.validation.BindingResult
 import org.springframework.validation.FieldError
 import org.springframework.web.bind.MethodArgumentNotValidException
-import java.util.UUID
 
 class GlobalExceptionHandlerTest {
 
@@ -58,22 +56,11 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    fun `VersionConflictException maps to 409 with current state and code`() {
-        val current = mapOf("version" to 5, "enabled" to true)
-        val response = handler.handleVersionConflict(VersionConflictException("version conflict", current))
-
-        assertThat(response.statusCode).isEqualTo(HttpStatus.CONFLICT)
-        assertThat(response.body?.error).isEqualTo("version conflict")
-        assertThat(response.body?.code).isEqualTo("VERSION_CONFLICT")
-        assertThat(response.body?.current).isEqualTo(current)
-    }
-
-    @Test
     fun `ObjectOptimisticLockingFailureException maps to 409 with the freshly re-fetched row`() {
-        val flag = FeatureFlag(name = "new-checkout").apply { id = UUID.randomUUID() }
-        val env = Environment(name = "production").apply { id = UUID.randomUUID() }
-        val rowId = UUID.randomUUID()
-        val freshRow = FlagEnv(flag = flag, env = env).apply { id = rowId; enabled = true; rollout = 42; version = 7 }
+        val flag = FeatureFlag(key = "new-checkout", name = "New Checkout").apply { id = 1L }
+        val env = Environment(name = "production").apply { id = 1L }
+        val rowId = 42L
+        val freshRow = FlagEnv(flag = flag, env = env).apply { id = rowId; enabled = true; version = 7 }
 
         val ex = mockk<ObjectOptimisticLockingFailureException>()
         every { ex.identifier } returns rowId
@@ -88,13 +75,12 @@ class GlobalExceptionHandlerTest {
         assertThat(current["version"]).isEqualTo(7)
         assertThat(current["env"]).isEqualTo("production")
         assertThat(current["enabled"]).isEqualTo(true)
-        assertThat(current["rollout"]).isEqualTo(42)
     }
 
     @Test
-    fun `ObjectOptimisticLockingFailureException with a non-UUID identifier returns null current`() {
+    fun `ObjectOptimisticLockingFailureException with a non-Long identifier returns null current`() {
         val ex = mockk<ObjectOptimisticLockingFailureException>()
-        every { ex.identifier } returns "not-a-uuid"
+        every { ex.identifier } returns "not-a-long"
 
         val response = handler.handleConcurrentModification(ex)
 
@@ -104,7 +90,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     fun `ObjectOptimisticLockingFailureException where the row is gone returns null current`() {
-        val rowId = UUID.randomUUID()
+        val rowId = 42L
         val ex = mockk<ObjectOptimisticLockingFailureException>()
         every { ex.identifier } returns rowId
         every { flagEnvRepository.findById(rowId) } returns java.util.Optional.empty()

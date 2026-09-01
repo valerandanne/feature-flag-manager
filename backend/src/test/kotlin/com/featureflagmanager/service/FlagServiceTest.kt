@@ -14,7 +14,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 
 class FlagServiceTest {
 
@@ -23,38 +23,40 @@ class FlagServiceTest {
     private val environmentRepository = mockk<EnvironmentRepository>()
 
     private val service = FlagService(featureFlagRepository, flagEnvRepository, environmentRepository)
+    private val idGen = AtomicLong(1)
 
-    private fun flag(name: String = "new-checkout", description: String? = "desc") =
-        FeatureFlag(name = name, description = description).apply { id = UUID.randomUUID() }
+    private fun flag(key: String = "new-checkout", name: String = "New Checkout", description: String? = "desc") =
+        FeatureFlag(key = key, name = name, description = description).apply { id = idGen.getAndIncrement() }
 
     private fun env(name: String = "production") =
-        Environment(name = name).apply { id = UUID.randomUUID() }
+        Environment(name = name).apply { id = idGen.getAndIncrement() }
 
     private fun flagEnv(flag: FeatureFlag, env: Environment, version: Int = 1, persisted: Boolean = true) =
         FlagEnv(flag = flag, env = env).apply {
-            if (persisted) id = UUID.randomUUID()
+            if (persisted) id = idGen.getAndIncrement()
             this.version = version
         }
 
     // -------- createFlag --------
 
     @Test
-    fun `createFlag saves a new flag when name is free`() {
+    fun `createFlag saves a new flag when key is free`() {
         val prod = env("production")
         val staging = env("staging")
 
-        every { featureFlagRepository.findByName("new-checkout") } returns null
+        every { featureFlagRepository.findByKey("new-checkout") } returns null
         val saved = slot<FeatureFlag>()
         every { featureFlagRepository.save(capture(saved)) } answers { saved.captured }
         every { environmentRepository.findAll() } returns listOf(prod, staging)
         val savedFlagEnvs = slot<List<FlagEnv>>()
         every { flagEnvRepository.saveAll(capture(savedFlagEnvs)) } answers { savedFlagEnvs.captured }
 
-        val result = service.createFlag("new-checkout", "desc")
+        val result = service.createFlag("new-checkout", "New Checkout", "desc")
 
-        assertThat(result.name).isEqualTo("new-checkout")
+        assertThat(result.key).isEqualTo("new-checkout")
+        assertThat(result.name).isEqualTo("New Checkout")
         assertThat(result.description).isEqualTo("desc")
-        assertThat(saved.captured.name).isEqualTo("new-checkout")
+        assertThat(saved.captured.key).isEqualTo("new-checkout")
         assertThat(saved.captured.description).isEqualTo("desc")
         assertThat(savedFlagEnvs.captured).hasSize(2)
         assertThat(savedFlagEnvs.captured.map { it.env.name }).containsExactlyInAnyOrder("production", "staging")
@@ -62,10 +64,10 @@ class FlagServiceTest {
     }
 
     @Test
-    fun `createFlag rejects a duplicate name`() {
-        every { featureFlagRepository.findByName("new-checkout") } returns flag()
+    fun `createFlag rejects a duplicate key`() {
+        every { featureFlagRepository.findByKey("new-checkout") } returns flag()
 
-        assertThrows<InvalidRequestException> { service.createFlag("new-checkout", "desc") }
+        assertThrows<InvalidRequestException> { service.createFlag("new-checkout", "New Checkout", "desc") }
         verify(exactly = 0) { featureFlagRepository.save(any()) }
     }
 
@@ -106,7 +108,7 @@ class FlagServiceTest {
     @Test
     fun `listFlagsWithEnvs ignores FlagEnv rows whose flag is not in the flags list`() {
         val f = flag()
-        val orphanFlag = flag(name = "other-flag")
+        val orphanFlag = flag(key = "other-flag", name = "Other Flag")
         val prod = env("production")
         val orphanFe = flagEnv(orphanFlag, prod)
 
@@ -124,9 +126,9 @@ class FlagServiceTest {
     @Test
     fun `updateFlag overwrites description when a new value is given`() {
         val f = flag(description = "old")
-        every { featureFlagRepository.findByName("new-checkout") } returns f
+        every { featureFlagRepository.findByKey("new-checkout") } returns f
 
-        val result = service.updateFlag("new-checkout", "new")
+        val result = service.updateFlag("new-checkout", null, "new")
 
         assertThat(result.description).isEqualTo("new")
     }
@@ -134,114 +136,61 @@ class FlagServiceTest {
     @Test
     fun `updateFlag keeps existing description when null is given`() {
         val f = flag(description = "old")
-        every { featureFlagRepository.findByName("new-checkout") } returns f
+        every { featureFlagRepository.findByKey("new-checkout") } returns f
 
-        val result = service.updateFlag("new-checkout", null)
+        val result = service.updateFlag("new-checkout", null, null)
 
         assertThat(result.description).isEqualTo("old")
     }
 
     @Test
-    fun `updateFlag throws NotFound when flag does not exist`() {
-        every { featureFlagRepository.findByName("missing") } returns null
+    fun `updateFlag overwrites name when a new value is given`() {
+        val f = flag(name = "Old Name")
+        every { featureFlagRepository.findByKey("new-checkout") } returns f
 
-        assertThrows<NotFoundException> { service.updateFlag("missing", "new") }
+        val result = service.updateFlag("new-checkout", "New Name", null)
+
+        assertThat(result.name).isEqualTo("New Name")
+    }
+
+    @Test
+    fun `updateFlag keeps existing name when null is given`() {
+        val f = flag(name = "Old Name")
+        every { featureFlagRepository.findByKey("new-checkout") } returns f
+
+        val result = service.updateFlag("new-checkout", null, null)
+
+        assertThat(result.name).isEqualTo("Old Name")
+    }
+
+    @Test
+    fun `updateFlag throws NotFound when flag does not exist`() {
+        every { featureFlagRepository.findByKey("missing") } returns null
+
+        assertThrows<NotFoundException> { service.updateFlag("missing", null, "new") }
     }
 
     // -------- updateFlagEnv --------
 
     @Test
-    fun `updateFlagEnv creates a FlagEnv when none exists yet, ignoring expectedVersion`() {
+    fun `updateFlagEnv updates enabled on an existing row`() {
         val f = flag()
         val e = env()
-        every { featureFlagRepository.findByName("new-checkout") } returns f
-        every { environmentRepository.findByName("production") } returns e
-        every { flagEnvRepository.findByFlagIdAndEnvId(f.id!!, e.id!!) } returns null
+        val existing = flagEnv(f, e, version = 3).apply { enabled = false }
+        every { flagEnvRepository.findByFlagKeyAndEnvName("new-checkout", "production") } returns existing
         every { flagEnvRepository.save(any()) } answers { firstArg() }
 
-        val result = service.updateFlagEnv("new-checkout", "production", enabled = true, rollout = 50, expectedVersion = 999)
+        val result = service.updateFlagEnv("new-checkout", "production", enabled = true)
 
         assertThat(result.enabled).isTrue()
-        assertThat(result.rollout).isEqualTo(50)
     }
 
     @Test
-    fun `updateFlagEnv updates only enabled when rollout is null`() {
-        val f = flag()
-        val e = env()
-        val existing = flagEnv(f, e, version = 3).apply { enabled = false; rollout = 20 }
-        every { featureFlagRepository.findByName("new-checkout") } returns f
-        every { environmentRepository.findByName("production") } returns e
-        every { flagEnvRepository.findByFlagIdAndEnvId(f.id!!, e.id!!) } returns existing
-        every { flagEnvRepository.save(any()) } answers { firstArg() }
-
-        val result = service.updateFlagEnv("new-checkout", "production", enabled = true, rollout = null, expectedVersion = 3)
-
-        assertThat(result.enabled).isTrue()
-        assertThat(result.rollout).isEqualTo(20)
-    }
-
-    @Test
-    fun `updateFlagEnv updates only rollout when enabled is null`() {
-        val f = flag()
-        val e = env()
-        val existing = flagEnv(f, e, version = 3).apply { enabled = true; rollout = 20 }
-        every { featureFlagRepository.findByName("new-checkout") } returns f
-        every { environmentRepository.findByName("production") } returns e
-        every { flagEnvRepository.findByFlagIdAndEnvId(f.id!!, e.id!!) } returns existing
-        every { flagEnvRepository.save(any()) } answers { firstArg() }
-
-        val result = service.updateFlagEnv("new-checkout", "production", enabled = null, rollout = 77, expectedVersion = 3)
-
-        assertThat(result.enabled).isTrue()
-        assertThat(result.rollout).isEqualTo(77)
-    }
-
-    @Test
-    fun `updateFlagEnv rejects when both enabled and rollout are null`() {
-        val ex = assertThrows<InvalidRequestException> {
-            service.updateFlagEnv("new-checkout", "production", enabled = null, rollout = null, expectedVersion = 3)
-        }
-        assertThat(ex.code).isEqualTo("NO_FIELDS_TO_UPDATE")
-        verify(exactly = 0) { flagEnvRepository.save(any()) }
-    }
-
-    @Test
-    fun `updateFlagEnv throws VersionConflict when expectedVersion is stale on an existing row`() {
-        val f = flag()
-        val e = env()
-        val existing = flagEnv(f, e, version = 5)
-        every { featureFlagRepository.findByName("new-checkout") } returns f
-        every { environmentRepository.findByName("production") } returns e
-        every { flagEnvRepository.findByFlagIdAndEnvId(f.id!!, e.id!!) } returns existing
-
-        val ex = assertThrows<VersionConflictException> {
-            service.updateFlagEnv("new-checkout", "production", enabled = false, rollout = null, expectedVersion = 4)
-        }
-
-        @Suppress("UNCHECKED_CAST")
-        val current = ex.current as Map<String, Any?>
-        assertThat(current["version"]).isEqualTo(5)
-        assertThat(current["env"]).isEqualTo("production")
-        verify(exactly = 0) { flagEnvRepository.save(any()) }
-    }
-
-    @Test
-    fun `updateFlagEnv throws NotFound when flag does not exist`() {
-        every { featureFlagRepository.findByName("missing") } returns null
+    fun `updateFlagEnv throws NotFound when there is no config for that flag+env combo`() {
+        every { flagEnvRepository.findByFlagKeyAndEnvName("missing", "production") } returns null
 
         assertThrows<NotFoundException> {
-            service.updateFlagEnv("missing", "production", enabled = true, rollout = null, expectedVersion = 1)
-        }
-    }
-
-    @Test
-    fun `updateFlagEnv throws NotFound when env does not exist`() {
-        every { featureFlagRepository.findByName("new-checkout") } returns flag()
-        every { environmentRepository.findByName("nope") } returns null
-
-        assertThrows<NotFoundException> {
-            service.updateFlagEnv("new-checkout", "nope", enabled = true, rollout = null, expectedVersion = 1)
+            service.updateFlagEnv("missing", "production", enabled = true)
         }
     }
 
@@ -252,36 +201,15 @@ class FlagServiceTest {
         val f = flag()
         val e = env()
         val existing = flagEnv(f, e)
-        every { featureFlagRepository.findByName("new-checkout") } returns f
-        every { environmentRepository.findByName("production") } returns e
-        every { flagEnvRepository.findByFlagIdAndEnvId(f.id!!, e.id!!) } returns existing
+        every { flagEnvRepository.findByFlagKeyAndEnvName("new-checkout", "production") } returns existing
 
         assertThat(service.getFlagEnv("new-checkout", "production")).isEqualTo(existing)
     }
 
     @Test
-    fun `getFlagEnv throws NotFound when flag does not exist`() {
-        every { featureFlagRepository.findByName("missing") } returns null
+    fun `getFlagEnv throws NotFound when there is no config for that flag+env combo`() {
+        every { flagEnvRepository.findByFlagKeyAndEnvName("missing", "production") } returns null
 
         assertThrows<NotFoundException> { service.getFlagEnv("missing", "production") }
-    }
-
-    @Test
-    fun `getFlagEnv throws NotFound when env does not exist`() {
-        every { featureFlagRepository.findByName("new-checkout") } returns flag()
-        every { environmentRepository.findByName("nope") } returns null
-
-        assertThrows<NotFoundException> { service.getFlagEnv("new-checkout", "nope") }
-    }
-
-    @Test
-    fun `getFlagEnv throws NotFound when flag and env exist but no config row does`() {
-        val f = flag()
-        val e = env()
-        every { featureFlagRepository.findByName("new-checkout") } returns f
-        every { environmentRepository.findByName("production") } returns e
-        every { flagEnvRepository.findByFlagIdAndEnvId(f.id!!, e.id!!) } returns null
-
-        assertThrows<NotFoundException> { service.getFlagEnv("new-checkout", "production") }
     }
 }

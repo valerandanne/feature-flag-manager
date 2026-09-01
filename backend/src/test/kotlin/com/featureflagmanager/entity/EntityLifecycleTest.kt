@@ -8,7 +8,7 @@ class EntityLifecycleTest {
 
     @Test
     fun `FeatureFlag onUpdate bumps updatedAt`() {
-        val flag = FeatureFlag(name = "f").apply { updatedAt = Instant.EPOCH }
+        val flag = FeatureFlag(key = "f", name = "F").apply { updatedAt = Instant.EPOCH }
 
         flag.onUpdate()
 
@@ -17,7 +17,7 @@ class EntityLifecycleTest {
 
     @Test
     fun `FlagEnv onUpdate bumps updatedAt`() {
-        val flagEnv = FlagEnv(flag = FeatureFlag(name = "f"), env = Environment(name = "production"))
+        val flagEnv = FlagEnv(flag = FeatureFlag(key = "f", name = "F"), env = Environment(name = "production"))
             .apply { updatedAt = Instant.EPOCH }
 
         flagEnv.onUpdate()

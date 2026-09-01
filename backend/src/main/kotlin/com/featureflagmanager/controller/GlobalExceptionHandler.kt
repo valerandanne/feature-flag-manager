@@ -3,7 +3,6 @@ package com.featureflagmanager.controller
 import com.featureflagmanager.repository.FlagEnvRepository
 import com.featureflagmanager.service.InvalidRequestException
 import com.featureflagmanager.service.NotFoundException
-import com.featureflagmanager.service.VersionConflictException
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -11,7 +10,6 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
-import java.util.UUID
 
 @RestControllerAdvice
 class GlobalExceptionHandler(
@@ -31,28 +29,19 @@ class GlobalExceptionHandler(
     fun handleValidation(ex: MethodArgumentNotValidException): ResponseEntity<ErrorResponse> =
         ResponseEntity.badRequest().body(ErrorResponse(error = ex.message ?: "invalid request", code = "VALIDATION_ERROR"))
 
-    @ExceptionHandler(VersionConflictException::class)
-    fun handleVersionConflict(ex: VersionConflictException): ResponseEntity<ErrorResponse> {
-        logger.warn("Version conflict (stale read): current={}", ex.current)
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(ErrorResponse(error = ex.message ?: "version conflict", code = ex.code, current = ex.current))
-    }
-
     /**
-     * Thrown by Hibernate's own `@Version` check at flush/commit time when two requests race past
-     * the manual version check in FlagService (both read the same version before either commits).
-     * The manual check handles the common "stale read" case; this is the safety net for a true
-     * simultaneous write-write race. Re-fetches the row fresh (the transaction that threw this is
-     * already rolled back) so `current` reflects whichever request actually won.
+     * Thrown by Hibernate's own `@Version` check at flush/commit time when two requests race to
+     * update the same row. Re-fetches the row fresh (the transaction that threw this is already
+     * rolled back) so `current` reflects whichever request actually won.
      */
     @ExceptionHandler(ObjectOptimisticLockingFailureException::class)
     fun handleConcurrentModification(ex: ObjectOptimisticLockingFailureException): ResponseEntity<ErrorResponse> {
-        val id = ex.identifier as? UUID
+        val id = ex.identifier as? Long
         val current = id?.let { flagEnvRepository.findById(it).orElse(null) }?.let {
             mapOf(
-                "flagName" to it.flag.name,
+                "flagKey" to it.flag.key,
                 "env" to it.env.name,
                 "enabled" to it.enabled,
-                "rollout" to it.rollout,
                 "version" to it.version,
             )
         }

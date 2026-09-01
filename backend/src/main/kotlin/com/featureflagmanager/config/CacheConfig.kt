@@ -8,7 +8,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import java.util.concurrent.TimeUnit
 
-const val CLIENT_FEATURES_CACHE = "clientFeatures"
+const val CLIENT_FLAGS_CACHE = "clientFlags"
 const val FLAG_ENABLED_CACHE = "flagEnabled"
 
 @Configuration
@@ -16,7 +16,7 @@ const val FLAG_ENABLED_CACHE = "flagEnabled"
 class CacheConfig {
     @Bean
     fun cacheManager(): CacheManager =
-        CaffeineCacheManager(CLIENT_FEATURES_CACHE, FLAG_ENABLED_CACHE).apply {
+        CaffeineCacheManager(CLIENT_FLAGS_CACHE, FLAG_ENABLED_CACHE).apply {
             setCaffeine(Caffeine.newBuilder().expireAfterWrite(30, TimeUnit.SECONDS))
         }
 }

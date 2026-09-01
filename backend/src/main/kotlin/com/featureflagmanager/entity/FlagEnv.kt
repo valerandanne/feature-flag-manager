@@ -2,7 +2,6 @@ package com.featureflagmanager.entity
 
 import jakarta.persistence.*
 import java.time.Instant
-import java.util.UUID
 
 @Entity
 @Table(name = "flag_env", uniqueConstraints = [UniqueConstraint(columnNames = ["flag_id", "env_id"])])
@@ -16,18 +15,18 @@ class FlagEnv(
     var env: Environment,
 ) {
     @Id
-    @GeneratedValue
-    var id: UUID? = null
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    var id: Long? = null
 
     @Column(nullable = false)
     var enabled: Boolean = false
 
-    @Column(nullable = false)
-    var rollout: Int = 100
-
     @Version
     @Column(nullable = false)
     var version: Int = 1
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    var createdAt: Instant = Instant.now()
 
     @Column(name = "updated_at", nullable = false)
     var updatedAt: Instant = Instant.now()

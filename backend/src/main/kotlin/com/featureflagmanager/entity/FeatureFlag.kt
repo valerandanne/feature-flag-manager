@@ -2,20 +2,22 @@ package com.featureflagmanager.entity
 
 import jakarta.persistence.*
 import java.time.Instant
-import java.util.UUID
 
 @Entity
 @Table(name = "feature_flag")
 class FeatureFlag(
-    @Column(nullable = false, unique = true)
+    @Column(name = "flag_key", nullable = false, unique = true)
+    var key: String,
+
+    @Column(nullable = false, length = 25)
     var name: String,
 
     @Column
     var description: String? = null,
 ) {
     @Id
-    @GeneratedValue
-    var id: UUID? = null
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    var id: Long? = null
 
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now()
