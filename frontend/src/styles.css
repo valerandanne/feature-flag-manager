@@ -140,6 +140,84 @@ main {
   border-radius: 999px;
 }
 
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.primary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: var(--navy-900);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13.5px;
+  padding: 9px 16px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.15s ease;
+}
+
+.primary-btn:hover {
+  background: var(--navy-800);
+}
+
+.primary-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ---------- Create flag form ---------- */
+.create-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.create-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.create-form-row label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.text-input {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 13.5px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.text-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.create-form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 /* ---------- Toolbar ---------- */
 .toolbar {
   display: flex;
@@ -351,6 +429,50 @@ main {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+  margin-left: -4px;
+  transition: background 0.15s ease;
+}
+
+.flag-desc:hover {
+  background: var(--bg);
+}
+
+.flag-desc-placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.desc-edit-row {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.desc-edit-input {
+  flex: 1;
+  max-width: 320px;
+  padding: 6px 10px;
+  font-size: 13.5px;
+}
+
+.link-btn {
+  border: none;
+  background: none;
+  color: var(--accent-dark);
+  font-weight: 600;
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 4px 2px;
+  white-space: nowrap;
+}
+
+.link-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .flag-meta {

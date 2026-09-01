@@ -16,8 +16,8 @@ Stack:
   for tests. No Docker, no external DB process.
 - **Migrations:** Flyway — `db/migration` (schema, always applied) and `db/seed` (demo data, only
   under the `dev` Spring profile)
-- **Auth (API key middleware):** a Spring `OncePerRequestFilter` (`ApiKeyAuthFilter`) guarding
-  only `/api/v1/client/features`
+- **Client identification (no auth):** the client endpoint is open, with no client identification
+  mechanism.
 - **Optimistic locking:** JPA's native `@Version` on `FlagEnv`, with an explicit version check in
   the service layer before mutating (so a stale `version` in the request returns `409` with the
   current state, rather than relying solely on a flush-time exception)
@@ -31,11 +31,10 @@ Stack:
 - `backend/build.gradle.kts`, `settings.gradle.kts`
 - `backend/src/main/kotlin/com/featureflagmanager/`
   - `FeatureFlagManagerApplication.kt`
-  - `entity/{Project,FeatureFlag,Environment,FlagEnv,ApiKey}.kt`
+  - `entity/{FeatureFlag,Environment,FlagEnv}.kt`
   - `repository/Repositories.kt` (Spring Data JPA interfaces)
-  - `service/{ProjectService,FlagService,ClientFeatureService,DomainExceptions}.kt`
+  - `service/{FlagService,ClientFeatureService,DomainExceptions}.kt`
   - `controller/{AdminController,ClientController,Dtos,GlobalExceptionHandler}.kt`
-  - `security/ApiKeyAuthFilter.kt`
   - `config/WebConfig.kt` (CORS, so the `frontend/` dev server can call the API)
 - `backend/src/main/resources/`
   - `application.yml` (default profile: H2 file DB, schema-only Flyway; `dev` profile: adds seed
@@ -46,26 +45,20 @@ Stack:
 
 ## Data model
 
-- `Project`: id (UUID), key (unique — note: `key` is a reserved word in H2, quoted as `` `key` ``
-  in the JPA `@Column` mapping and as `"key"` in the SQL migrations), name, createdAt
-- `FeatureFlag`: id (UUID), project (FK), name (unique per project), description, createdAt,
-  updatedAt
+- `FeatureFlag`: id (UUID), name (unique), description, createdAt, updatedAt
 - `Environment`: id (UUID), name (unique) — seeded with `development`/`staging`/`production`
 - `FlagEnv`: id (UUID), flag (FK), env (FK), enabled, rollout (0..100), version (`@Version`),
   updatedAt — unique on (flag, env)
-- `ApiKey`: id (UUID), key (unique, same H2 quoting caveat as `Project.key`), project (FK),
-  description, createdAt
 
 ## API
 
 See `spec.md`'s API Contracts section for the full request/response shapes. Routes:
 
-- `POST /api/v1/projects`, `GET /api/v1/projects`
-- `POST /api/v1/projects/:projectId/flags`, `GET /api/v1/projects/:projectId/flags`
-- `PATCH /api/v1/projects/:projectId/flags/:flagName`
-- `PATCH /api/v1/projects/:projectId/flags/:flagName/env/:envName`
-- `GET /api/v1/projects/:projectId/flags/:flagName/env/:envName`
-- `GET /api/v1/client/features?env=...` (API-key protected)
+- `POST /api/v1/flags`, `GET /api/v1/flags`
+- `PATCH /api/v1/flags/:flagName`
+- `PATCH /api/v1/flags/:flagName/envs/:envName`
+- `GET /api/v1/flags/:flagName/envs/:envName`
+- `GET /api/v1/client/features?env=...` (open, no auth)
 
 `frontend/` (React/Vite) only calls the admin routes above; its default `VITE_API_BASE` points at
 `http://localhost:8080`, matching `backend/`'s default port.

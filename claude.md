@@ -7,7 +7,7 @@
 ## Project structure
 
 - `backend/` — server code (Kotlin)
-  - `src/main/kotlin/com/featureflagmanager/` — entities, repositories, services, controllers, security
+  - `src/main/kotlin/com/featureflagmanager/` — entities, repositories, services, controllers, config
   - `src/main/resources/db/migration/` — Flyway schema migrations
   - `src/main/resources/db/seed/` — Flyway seed data (applied only under the `dev` profile)
   - `src/test/kotlin/` — JUnit 5 integration tests (run against in-memory H2, `test` profile)

@@ -1,8 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { apiGet, apiPatch } from '../api'
+import { apiGet, apiPatch, apiPost } from '../api'
 
-type Flag = { id: string; name: string; description?: string }
-type FlagEnv = { id: string; enabled: boolean; rollout: number; version: number }
+type FlagEnv = { enabled: boolean; rollout: number; version: number }
+type FlagEnvSummary = FlagEnv & { env: string }
+type FlagDto = { name: string; description?: string; envs: FlagEnvSummary[] }
+type Flag = { name: string; description?: string; envs: Record<string, FlagEnv> }
+
+function toFlag(dto: FlagDto): Flag {
+  const envs: Record<string, FlagEnv> = {}
+  for (const { env, ...rest } of dto.envs) envs[env] = rest
+  return { name: dto.name, description: dto.description, envs }
+}
 
 const ENVIRONMENTS = ['development', 'staging', 'production']
 
@@ -10,33 +18,29 @@ export default function FlagsList() {
   const [flags, setFlags] = useState<Flag[]>([])
   const [envName, setEnvName] = useState<string>('production')
   const [loading, setLoading] = useState(false)
-  const [flagEnvs, setFlagEnvs] = useState<Record<string, FlagEnv | null>>({})
   const [query, setQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pendingRollout, setPendingRollout] = useState<Record<string, number>>({})
 
+  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [newFlagName, setNewFlagName] = useState('')
+  const [newFlagDescription, setNewFlagDescription] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  const [editingDescription, setEditingDescription] = useState<string | null>(null)
+  const [descriptionDraft, setDescriptionDraft] = useState('')
+  const [savingDescription, setSavingDescription] = useState(false)
+
   useEffect(() => {
     loadFlags()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [envName])
+  }, [])
 
   async function loadFlags() {
     setLoading(true)
     setError(null)
     try {
-      const data = await apiGet('/api/v1/flags')
-      setFlags(data)
-      const cfgs: Record<string, FlagEnv | null> = {}
-      await Promise.all(
-        data.map(async (f: any) => {
-          try {
-            cfgs[f.name] = await apiGet(`/api/v1/flags/${f.name}/env/${envName}`)
-          } catch (e) {
-            cfgs[f.name] = null
-          }
-        })
-      )
-      setFlagEnvs(cfgs)
+      const data: FlagDto[] = await apiGet('/api/v1/flags')
+      setFlags(data.map(toFlag))
       setPendingRollout({})
     } catch (err: any) {
       setError('Could not load flags: ' + (err.message || err))
@@ -45,26 +49,32 @@ export default function FlagsList() {
     }
   }
 
+  function applyEnvUpdate(flagName: string, updated: FlagEnv) {
+    setFlags((prev) =>
+      prev.map((f) => (f.name === flagName ? { ...f, envs: { ...f.envs, [envName]: updated } } : f))
+    )
+  }
+
   async function toggleFlag(flagName: string) {
-    const cur = flagEnvs[flagName]
+    const cur = flags.find((f) => f.name === flagName)?.envs[envName]
     const newEnabled = !(cur && cur.enabled)
     try {
       const body = { enabled: newEnabled, version: cur ? cur.version : 0 }
-      const updated = await apiPatch(`/api/v1/flags/${flagName}/env/${envName}`, body)
-      setFlagEnvs((s) => ({ ...s, [flagName]: updated }))
+      const updated = await apiPatch(`/api/v1/flags/${flagName}/envs/${envName}`, body)
+      applyEnvUpdate(flagName, updated)
     } catch (err: any) {
       setError(`Could not update "${flagName}": ` + (err.message || err))
     }
   }
 
   async function commitRollout(flagName: string) {
-    const cur = flagEnvs[flagName]
+    const cur = flags.find((f) => f.name === flagName)?.envs[envName]
     const value = pendingRollout[flagName]
     if (!cur || value === undefined || value === cur.rollout) return
     try {
       const body = { rollout: value, version: cur.version }
-      const updated = await apiPatch(`/api/v1/flags/${flagName}/env/${envName}`, body)
-      setFlagEnvs((s) => ({ ...s, [flagName]: updated }))
+      const updated = await apiPatch(`/api/v1/flags/${flagName}/envs/${envName}`, body)
+      applyEnvUpdate(flagName, updated)
     } catch (err: any) {
       setError(`Could not update rollout for "${flagName}": ` + (err.message || err))
     } finally {
@@ -76,6 +86,55 @@ export default function FlagsList() {
     }
   }
 
+  async function createFlag(e: React.FormEvent) {
+    e.preventDefault()
+    const name = newFlagName.trim()
+    if (!name) return
+    setCreating(true)
+    setError(null)
+    try {
+      await apiPost('/api/v1/flags', {
+        name,
+        description: newFlagDescription.trim() || undefined,
+      })
+      setNewFlagName('')
+      setNewFlagDescription('')
+      setShowCreateForm(false)
+      await loadFlags()
+    } catch (err: any) {
+      setError('Could not create flag: ' + (err.message || err))
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  function startEditDescription(flag: Flag) {
+    setEditingDescription(flag.name)
+    setDescriptionDraft(flag.description || '')
+  }
+
+  function cancelEditDescription() {
+    setEditingDescription(null)
+    setDescriptionDraft('')
+  }
+
+  async function saveDescription(flagName: string) {
+    setSavingDescription(true)
+    setError(null)
+    try {
+      const updated = await apiPatch(`/api/v1/flags/${flagName}`, {
+        description: descriptionDraft.trim() || null,
+      })
+      setFlags((s) => s.map((f) => (f.name === flagName ? { ...f, description: updated.description } : f)))
+      setEditingDescription(null)
+      setDescriptionDraft('')
+    } catch (err: any) {
+      setError(`Could not update description for "${flagName}": ` + (err.message || err))
+    } finally {
+      setSavingDescription(false)
+    }
+  }
+
   const filteredFlags = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return flags
@@ -84,7 +143,7 @@ export default function FlagsList() {
     )
   }, [flags, query])
 
-  const enabledCount = flags.filter((f) => flagEnvs[f.name]?.enabled).length
+  const enabledCount = flags.filter((f) => f.envs[envName]?.enabled).length
 
   return (
     <div className="page">
@@ -93,11 +152,16 @@ export default function FlagsList() {
           <h2>Feature Flags</h2>
           <p>Toggle functionality per client and environment without a redeploy.</p>
         </div>
-        {flags.length > 0 && (
-          <span className="count-chip">
-            {enabledCount} / {flags.length} enabled in {envName}
-          </span>
-        )}
+        <div className="page-header-actions">
+          {flags.length > 0 && (
+            <span className="count-chip">
+              {enabledCount} / {flags.length} enabled in {envName}
+            </span>
+          )}
+          <button className="primary-btn" onClick={() => setShowCreateForm((s) => !s)}>
+            {showCreateForm ? 'Cancel' : '+ New flag'}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -105,6 +169,38 @@ export default function FlagsList() {
           <span>{error}</span>
           <button onClick={() => setError(null)}>Dismiss</button>
         </div>
+      )}
+
+      {showCreateForm && (
+        <form className="create-form" onSubmit={createFlag}>
+          <div className="create-form-row">
+            <label htmlFor="new-flag-name">Name</label>
+            <input
+              id="new-flag-name"
+              className="text-input"
+              placeholder="my-new-flag"
+              value={newFlagName}
+              onChange={(e) => setNewFlagName(e.target.value)}
+              autoFocus
+              required
+            />
+          </div>
+          <div className="create-form-row">
+            <label htmlFor="new-flag-description">Description</label>
+            <input
+              id="new-flag-description"
+              className="text-input"
+              placeholder="What does this flag control? (optional)"
+              value={newFlagDescription}
+              onChange={(e) => setNewFlagDescription(e.target.value)}
+            />
+          </div>
+          <div className="create-form-actions">
+            <button type="submit" className="primary-btn" disabled={creating || !newFlagName.trim()}>
+              {creating ? 'Creating...' : 'Create flag'}
+            </button>
+          </div>
+        </form>
       )}
 
       <div className="toolbar">
@@ -164,12 +260,12 @@ export default function FlagsList() {
 
       <div className="flag-list">
         {filteredFlags.map((f) => {
-          const cfg = flagEnvs[f.name]
+          const cfg = f.envs[envName]
           const enabled = !!cfg?.enabled
           const rolloutValue = pendingRollout[f.name] ?? cfg?.rollout ?? 100
 
           return (
-            <div className="flag-card" key={f.id}>
+            <div className="flag-card" key={f.name}>
               <div className="flag-card-row">
                 <div className="flag-info">
                   <div className="flag-name-row">
@@ -178,7 +274,31 @@ export default function FlagsList() {
                       {enabled ? 'Enabled' : 'Disabled'}
                     </span>
                   </div>
-                  {f.description && <p className="flag-desc">{f.description}</p>}
+                  {editingDescription === f.name ? (
+                    <div className="desc-edit-row">
+                      <input
+                        className="text-input desc-edit-input"
+                        value={descriptionDraft}
+                        onChange={(e) => setDescriptionDraft(e.target.value)}
+                        placeholder="Description"
+                        autoFocus
+                      />
+                      <button
+                        className="link-btn"
+                        onClick={() => saveDescription(f.name)}
+                        disabled={savingDescription}
+                      >
+                        Save
+                      </button>
+                      <button className="link-btn" onClick={cancelEditDescription}>
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="flag-desc" onClick={() => startEditDescription(f)}>
+                      {f.description || <span className="flag-desc-placeholder">Add description</span>}
+                    </p>
+                  )}
                   <p className="flag-meta">version {cfg ? cfg.version : 'n/a'}</p>
                 </div>
 
@@ -192,9 +312,9 @@ export default function FlagsList() {
 
               {enabled && cfg && (
                 <div className="rollout-row">
-                  <label htmlFor={`rollout-${f.id}`}>Rollout</label>
+                  <label htmlFor={`rollout-${f.name}`}>Rollout</label>
                   <input
-                    id={`rollout-${f.id}`}
+                    id={`rollout-${f.name}`}
                     type="range"
                     min={0}
                     max={100}
