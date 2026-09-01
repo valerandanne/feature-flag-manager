@@ -1,31 +1,32 @@
 ## Stack and project description
 
-- **Primary stack:** Node.js, TypeScript, an HTTP framework (Express or similar), Prisma (Postgres), Jest for tests, and `ts-node`/`ts-node-dev` for development.
-- **Description:** Feature flag manager to enable/disable functionality per client/environment. Provides administrative endpoints to manage flags and client endpoints to resolve flag state for users/clients. Persistent storage via Prisma.
+- **Primary stack:** Kotlin, Spring Boot (Web, Data JPA), Hibernate/JPA, H2 (embedded, file-based), Flyway for migrations, JUnit 5 + Spring Boot Test, Gradle (Kotlin DSL). See [docs/spec/features/001-mvp-feature-flags](docs/spec/features/001-mvp-feature-flags/spec.md).
+- **Frontend:** React + TypeScript + Vite (`frontend/`).
+- **Description:** Feature flag manager to enable/disable functionality per client/environment. Provides administrative endpoints to manage flags and client endpoints to resolve flag state for users/clients. Persistent storage via JPA/H2 — no external database or Docker required.
 
 ## Project structure
 
-- `backend/` — server code (TypeScript)
-  - `src/` — source code (`index.ts`, `prismaClient.ts`, middleware, routes)
-  - `prisma/` — Prisma schema, migrations and seed
-  - `test/` — Jest tests
-  - `package.json`, `tsconfig.json`, `jest.config.cjs`
+- `backend/` — server code (Kotlin)
+  - `src/main/kotlin/com/featureflagmanager/` — entities, repositories, services, controllers, security
+  - `src/main/resources/db/migration/` — Flyway schema migrations
+  - `src/main/resources/db/seed/` — Flyway seed data (applied only under the `dev` profile)
+  - `src/test/kotlin/` — JUnit 5 integration tests (run against in-memory H2, `test` profile)
+  - `build.gradle.kts`, `settings.gradle.kts`
+- `frontend/` — admin UI (React/Vite)
 
 ## Commands
 
 - From `backend`:
-  - `npm install` — install dependencies
-  - `npm run dev` — start in development mode (if provided)
-  - `npm test` — run tests
-  - `npx prisma migrate dev` — apply migrations in development
-  - `npx ts-node --transpile-only prisma/seed.ts` — run the seed script
+  - `./gradlew build` — build
+  - `./gradlew bootRun --args='--spring.profiles.active=dev'` — run locally with schema + seed data
+  - `./gradlew test` — run tests (no external services needed)
 
 ## Conventions
 
-- TypeScript with `strict: true`.
-- Automated tests for critical features (Jest).
-- Clear separation: routes → controllers/handlers → services → repositories.
-- Changes to `schema.prisma` must include a migration and updated seed.
+- Kotlin with Spring idioms: constructor injection, `@Version`-based optimistic locking, DTOs at the controller boundary (not exposing entities directly).
+- Automated tests for critical features (JUnit 5, in-memory H2).
+- Clear separation: controllers → services → repositories.
+- Changes to the data model must include a Flyway migration (`db/migration`) and, where relevant, updated seed data (`db/seed`).
 - Number features in `docs/spec/features` using a `00X-` prefix to preserve order.
 
 ## Don'ts
