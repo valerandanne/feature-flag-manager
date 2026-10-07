@@ -4,6 +4,7 @@ import com.featureflagmanager.repository.FlagEnvRepository
 import com.featureflagmanager.service.InvalidRequestException
 import com.featureflagmanager.service.NotFoundException
 import org.slf4j.LoggerFactory
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.orm.ObjectOptimisticLockingFailureException
@@ -29,11 +30,6 @@ class GlobalExceptionHandler(
     fun handleValidation(ex: MethodArgumentNotValidException): ResponseEntity<ErrorResponse> =
         ResponseEntity.badRequest().body(ErrorResponse(error = ex.message ?: "invalid request", code = "VALIDATION_ERROR"))
 
-    /**
-     * Thrown by Hibernate's own `@Version` check at flush/commit time when two requests race to
-     * update the same row. Re-fetches the row fresh (the transaction that threw this is already
-     * rolled back) so `current` reflects whichever request actually won.
-     */
     @ExceptionHandler(ObjectOptimisticLockingFailureException::class)
     fun handleConcurrentModification(ex: ObjectOptimisticLockingFailureException): ResponseEntity<ErrorResponse> {
         val id = ex.identifier as? Long
@@ -48,5 +44,12 @@ class GlobalExceptionHandler(
         logger.warn("Version conflict (simultaneous write race) on FlagEnv id={}: current={}", id, current)
         return ResponseEntity.status(HttpStatus.CONFLICT)
             .body(ErrorResponse(error = "version conflict", code = "VERSION_CONFLICT", current = current))
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException::class)
+    fun handleDataIntegrityViolation(ex: DataIntegrityViolationException): ResponseEntity<ErrorResponse> {
+        logger.warn("Data integrity violation (likely duplicate flag key race): {}", ex.message)
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(ErrorResponse(error = "flag key already exists", code = "FLAG_ALREADY_EXISTS"))
     }
 }

@@ -137,4 +137,33 @@ class FeatureFlagIntegrationTest {
 
         assertThat(statuses).containsExactlyInAnyOrder(200, 409)
     }
+
+    @Test
+    fun `two simultaneous creates with the same key - one succeeds, the loser gets a clean rejection not a 500`() {
+        // Create is check-then-insert, not atomic, so the loser may be caught by either the
+        // service's pre-check (400 FLAG_ALREADY_EXISTS) or the DB unique constraint (409
+        // FLAG_ALREADY_EXISTS) depending on thread interleaving - both are acceptable, a 500 is not.
+        val startBarrier = CountDownLatch(2)
+        val pool = Executors.newFixedThreadPool(2)
+        val body = mapOf("key" to "race-flag", "name" to "Race Flag")
+
+        fun createFlag() = pool.submit<Int> {
+            startBarrier.countDown()
+            startBarrier.await(5, TimeUnit.SECONDS)
+            mockMvc.perform(
+                post("/api/v1/flags")
+                    .contentType("application/json")
+                    .content(objectMapper.writeValueAsString(body)),
+            ).andReturn().response.status
+        }
+
+        val futureA = createFlag()
+        val futureB = createFlag()
+
+        val statuses = listOf(futureA.get(5, TimeUnit.SECONDS), futureB.get(5, TimeUnit.SECONDS))
+        pool.shutdown()
+
+        assertThat(statuses).contains(201)
+        assertThat(statuses.filter { it != 201 }).allMatch { it == 400 || it == 409 }
+    }
 }
